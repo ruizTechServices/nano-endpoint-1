@@ -1,0 +1,428 @@
+# README.md — Orin Nano Ollama GPU Endpoint
+
+## Overview
+
+This machine runs a private Ollama server inside a Docker container on an NVIDIA Jetson Orin Nano.
+
+The endpoint is used to run local LLM inference over the network from another machine, such as a Windows laptop, a Next.js app, or a local development tool.
+
+## Current Setup
+
+| Item                           | Value                        |
+| ------------------------------ | ---------------------------- |
+| Device                         | NVIDIA Jetson Orin Nano      |
+| Hostname                       | `orin-nano-44`               |
+| SSH user                       | `giosterr44`                 |
+| Tailscale/IP endpoint          | `100.86.175.53`              |
+| Docker container               | `ollama-gpu`                 |
+| Docker image                   | `ollama/ollama`              |
+| Container command              | `/bin/ollama serve`          |
+| Host port                      | `11435`                      |
+| Container port                 | `11434`                      |
+| Public API base URL on tailnet | `http://100.86.175.53:11435` |
+| Main working model             | `qwen3:1.7b`                 |
+| Monitoring tool                | `jtop` from `jetson-stats`   |
+
+## Architecture
+
+```text
+Windows Laptop / Next.js App
+        |
+        | HTTP request
+        v
+http://100.86.175.53:11435
+        |
+        | Docker port mapping
+        v
+ollama-gpu container :11434
+        |
+        v
+Ollama server
+        |
+        v
+llama-server model runner
+        |
+        v
+Jetson GPU / shared memory
+```
+
+The host exposes port `11435`, which maps to Ollama’s normal internal port `11434`.
+
+## Confirm the Container Is Running
+
+SSH into the Orin:
+
+```bash
+ssh giosterr44@100.86.175.53
+```
+
+Check Docker:
+
+```bash
+docker ps
+```
+
+Expected container:
+
+```text
+ollama-gpu
+```
+
+Expected port mapping:
+
+```text
+0.0.0.0:11435->11434/tcp
+```
+
+## Health Check
+
+From the Windows laptop:
+
+```bash
+curl -sS http://100.86.175.53:11435/api/tags | jq
+```
+
+This should return installed Ollama models.
+
+## Main Model
+
+Current recommended model:
+
+```text
+qwen3:1.7b
+```
+
+Why this model:
+
+* Small enough for the Orin Nano.
+* Fast enough to feel usable.
+* Supports thinking output through Ollama’s `think:true` mode.
+* Fits current memory usage better than larger 7B+ models.
+
+## Basic Chat Request
+
+```bash
+curl -sS http://100.86.175.53:11435/api/chat \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "model":"qwen3:1.7b",
+    "stream":false,
+    "messages":[
+      {
+        "role":"user",
+        "content":"Explain what an algorithm is in one paragraph."
+      }
+    ],
+    "options":{
+      "temperature":0.2,
+      "num_ctx":2048,
+      "num_predict":512
+    }
+  }' | jq -r '.message.content // .error // .'
+```
+
+## Thinking Mode
+
+`qwen3:1.7b` can return a thinking section separately from the final answer.
+
+Use:
+
+```json
+"think": true
+```
+
+Read:
+
+```text
+.message.thinking
+.message.content
+```
+
+Example:
+
+```bash
+curl -sS http://100.86.175.53:11435/api/chat \
+  -H "Content-Type: application/json" \
+  --data-raw '{
+    "model":"qwen3:1.7b",
+    "think":true,
+    "stream":false,
+    "messages":[
+      {
+        "role":"user",
+        "content":"Think briefly, then explain recursion simply in one paragraph."
+      }
+    ],
+    "options":{
+      "temperature":0.2,
+      "num_ctx":2048,
+      "num_predict":1024
+    }
+  }' \
+  | jq -r '"THINKING:\n\(.message.thinking // "")\n\nANSWER:\n\(.message.content // "")"'
+```
+
+## Important Thinking Mode Warning
+
+When `think:true` is enabled, the thinking text counts toward the output token budget.
+
+Bad example:
+
+```json
+{
+  "think": true,
+  "options": {
+    "num_predict": 32
+  }
+}
+```
+
+This can return an empty final answer because the model may spend the whole output budget thinking.
+
+Better:
+
+```json
+{
+  "think": true,
+  "options": {
+    "num_predict": 1024
+  }
+}
+```
+
+For short tests, either disable thinking:
+
+```json
+"think": false
+```
+
+or tell the model:
+
+```text
+Think briefly, then answer in one sentence.
+```
+
+## Tool Calling
+
+The `/api/chat` request may include Ollama-compatible `tools` function definitions. When `qwen3:1.7b` selects a function, the non-streaming response contains `message.tool_calls` entries with a function name and arguments.
+
+The model only selects a tool. The calling application must:
+
+1. Allowlist the function name.
+2. Validate its arguments.
+3. Execute the function outside the model.
+4. Validate and present the result.
+
+Orin Local currently exposes `get_nyc_time`, `get_current_weather`, and `search_web`. These are application capabilities, not unrestricted network access inside Ollama. See [`../qwen3/tool-use.md`](../qwen3/tool-use.md) for prompting examples.
+
+## Recommended Defaults
+
+### Fast factual response
+
+```json
+{
+  "think": false,
+  "stream": false,
+  "options": {
+    "temperature": 0.2,
+    "num_ctx": 2048,
+    "num_predict": 512
+  }
+}
+```
+
+### Thinking response
+
+```json
+{
+  "think": true,
+  "stream": false,
+  "options": {
+    "temperature": 0.2,
+    "num_ctx": 2048,
+    "num_predict": 1024
+  }
+}
+```
+
+### Frontend streaming response
+
+```json
+{
+  "think": true,
+  "stream": true,
+  "options": {
+    "temperature": 0.2,
+    "num_ctx": 2048,
+    "num_predict": 1024
+  }
+}
+```
+
+## GPU Monitoring
+
+Run this on the Orin host:
+
+```bash
+jtop
+```
+
+You should see:
+
+* `llama-server` process
+* GPU/GR3D usage rising during generation
+* RAM usage
+* swap usage
+* temperatures
+* power mode
+* clocks
+
+Good signs:
+
+```text
+GPU/GR3D activity rises during generation
+CPU remains low
+Swap stays low
+Temperature remains stable
+```
+
+Bad signs:
+
+```text
+Swap grows above 1GB
+RAM approaches full usage
+Container restarts
+Responses become suddenly much slower
+jtop freezes
+```
+
+## Container Management
+
+List models:
+
+```bash
+docker exec -it ollama-gpu ollama list
+```
+
+Pull model:
+
+```bash
+docker exec -it ollama-gpu ollama pull qwen3:1.7b
+```
+
+Run model interactively:
+
+```bash
+docker exec -it ollama-gpu ollama run qwen3:1.7b
+```
+
+Exit interactive chat:
+
+```text
+/bye
+```
+
+or:
+
+```text
+Ctrl + d
+```
+
+Restart container:
+
+```bash
+docker restart ollama-gpu
+```
+
+Check logs:
+
+```bash
+docker logs ollama-gpu --tail=100
+```
+
+Follow logs live:
+
+```bash
+docker logs -f ollama-gpu
+```
+
+Check Docker resource usage:
+
+```bash
+docker stats ollama-gpu
+```
+
+Remove model:
+
+```bash
+docker exec -it ollama-gpu ollama rm qwen3:1.7b
+```
+
+## Security Notes
+
+Do not expose this endpoint directly to the public internet.
+
+Recommended usage:
+
+```text
+Frontend browser
+    |
+    v
+Next.js API route
+    |
+    v
+Private Ollama endpoint
+```
+
+Do not call `http://100.86.175.53:11435` directly from a public frontend unless the client is trusted and connected to the same private network.
+
+The current Orin Local browser app is intentionally local and calls Orin directly from a trusted tailnet browser. Its Python server binds to loopback and proxies only Brave Search so that `BRAVE_SEARCH_API_KEY` never enters browser code. This local architecture is not a public deployment boundary.
+
+## Current Practical Limit
+
+The Orin Nano is best suited for small local models.
+
+Recommended model range:
+
+| Model Size               | Status                    |
+| ------------------------ | ------------------------- |
+| `0.6B`                   | Very safe                 |
+| `1.7B`                   | Best current sweet spot   |
+| `3B`                     | Likely okay               |
+| `4B`                     | Test carefully            |
+| `7B`                     | Usually too tight or slow |
+| Huge sharded GGUF models | Not practical here        |
+
+## Known Issue: Sharded GGUF
+
+Some Hugging Face GGUF repositories use multiple GGUF shard files.
+
+Ollama may reject these with an error like:
+
+```text
+The specified repository contains sharded GGUF. Ollama does not support this yet.
+```
+
+Use normal Ollama library models or single-file GGUF-compatible models instead.
+
+## TL;DR
+
+This endpoint is a private Ollama GPU server running inside Docker on the Jetson Orin Nano.
+
+Use:
+
+```text
+http://100.86.175.53:11435/api/chat
+```
+
+with:
+
+```json
+"model": "qwen3:1.7b"
+```
+
+For normal answers, use `think:false`.
+
+For visible reasoning, use `think:true` and read `message.thinking`.
+
+For public frontend apps, place an authenticated server-side gateway in front of Orin instead of exposing the endpoint directly. The current loopback Python server is suitable only for the local Orin Local application.
