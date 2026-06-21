@@ -96,9 +96,10 @@ From Windows Git Bash:
 ```bash
 curl -sS http://100.86.175.53:11435/api/tags | jq
 ```
-
+# Below are implementations for the Orin Nano Chat APP
+---
 ## Start Orin Local From Git Bash
-
+- - 
 Stop Live Server first, then run from the repository root:
 
 ```bash
@@ -113,7 +114,7 @@ Open `http://127.0.0.1:5500/`. Stop with `Ctrl+C`, then run `unset BRAVE_SEARCH_
 The browser must be on the trusted tailnet. The Python server is loopback-only and proxies Brave Search; it does not make the private Orin endpoint public.
 
 ## Orin Local Tool Prompts
-
+- -
 ```text
 NYC time: What is the exact current date and time in New York City?
 Weather: What is the current weather in City, State/Province, Country?
@@ -123,7 +124,7 @@ Web: Use Brave web search to find the official documentation for [topic].
 The application allowlists `get_nyc_time`, `get_current_weather`, and `search_web`. Qwen selects a tool; the client validates and executes it. See `../qwen3/tool-use.md` for the complete guide.
 
 ## Simple Chat
-
+- -
 ```bash
 curl -sS http://100.86.175.53:11435/api/chat \
   -H "Content-Type: application/json" \
@@ -145,7 +146,7 @@ curl -sS http://100.86.175.53:11435/api/chat \
 ```
 
 ## Thinking Chat
-
+- -
 ```bash
 curl -sS http://100.86.175.53:11435/api/chat \
   -H "Content-Type: application/json" \
@@ -169,7 +170,7 @@ curl -sS http://100.86.175.53:11435/api/chat \
 ```
 
 ## Streaming Thinking Chat
-
+- -
 ```bash
 curl -sS http://100.86.175.53:11435/api/chat \
   -H "Content-Type: application/json" \
@@ -197,7 +198,7 @@ curl -sS http://100.86.175.53:11435/api/chat \
 ```
 
 ## Exact Endpoint Test
-
+- -
 Use `think:false` for exact tests.
 
 ```bash
@@ -229,7 +230,7 @@ orin endpoint online
 ```
 
 ## Debug Response
-
+- -
 ```bash
 curl -sS http://100.86.175.53:11435/api/chat \
   -H "Content-Type: application/json" \
@@ -258,7 +259,7 @@ curl -sS http://100.86.175.53:11435/api/chat \
 ```
 
 ## If Answer Is Empty
-
+- -
 Check:
 
 ```json
@@ -278,7 +279,7 @@ Think briefly, then answer...
 ```
 
 ## Good Defaults
-
+- -
 ### Normal Chat
 
 ```json
@@ -292,7 +293,7 @@ Think briefly, then answer...
 ```
 
 ### Thinking Chat
-
+- -
 ```json
 {
   "think": true,
@@ -304,7 +305,7 @@ Think briefly, then answer...
 ```
 
 ### Streaming UI
-
+- -
 ```json
 {
   "think": true,
@@ -316,7 +317,7 @@ Think briefly, then answer...
 ```
 
 ## Monitor GPU
-
+- -
 Run on Orin host:
 
 ```bash
@@ -324,7 +325,7 @@ jtop
 ```
 
 ## Monitor in tmux
-
+- -
 ```bash
 tmux new -s monitor
 jtop
@@ -344,7 +345,7 @@ tmux attach -t monitor
 ```
 
 ## What to Watch in jtop
-
+- -
 Good:
 
 ```text
@@ -366,7 +367,7 @@ Responses become very slow
 ```
 
 ## Model Size Guidance
-
+- -
 ```text
 qwen3:0.6b   safest
 qwen3:1.7b   current best choice
@@ -375,7 +376,7 @@ qwen3:4b     test carefully
 ```
 
 ## Next.js Rule
-
+- -
 Do not call the Orin endpoint directly from public frontend code.
 
 Orin Local is a trusted-tailnet local exception: its browser calls Orin directly, while its loopback Python server protects only the Brave credential. Do not deploy that architecture publicly.
@@ -387,7 +388,7 @@ Browser -> Next.js API Route -> Orin Ollama endpoint
 ```
 
 ## Minimal Next.js Proxy Route
-
+- -
 ```ts
 export async function POST(req: Request) {
   const body = await req.json();
@@ -422,7 +423,7 @@ export async function POST(req: Request) {
 ```
 
 ## Most Common Mistake
-
+- -
 Bad:
 
 ```json
@@ -457,7 +458,7 @@ or:
 ```
 
 ## TL;DR
-
+---
 Use:
 
 ```text
