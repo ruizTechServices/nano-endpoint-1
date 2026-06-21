@@ -101,6 +101,12 @@ button {
   box-shadow: 0 0 0 3px rgba(96, 180, 75, 0.12);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .button {
   min-height: 38px;
   display: inline-flex;
@@ -463,6 +469,20 @@ textarea:disabled {
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1s ease-in-out infinite;
+}
+
+.save-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.save-status[data-state="success"] {
+  color: var(--success);
+}
+
+.save-status[data-state="error"] {
+  color: var(--danger);
 }
 
 .memory-details {

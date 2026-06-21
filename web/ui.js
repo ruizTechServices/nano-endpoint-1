@@ -2,6 +2,7 @@ import { deleteAll, initialize, onUserMessage, subscribe } from "./chat.js";
 import { CONTEXT_SIZE, contextSlotCount } from "./context.js";
 import { logger } from "./logger.js";
 import { renderMarkdown } from "./markdown.js";
+import { saveHistory } from "./save.js";
 import { SUMMARIZE_EVERY } from "./summary.js";
 
 const elements = {
@@ -20,10 +21,19 @@ const elements = {
   deleteDialog: document.querySelector("[data-delete-dialog]"),
   cancelDelete: document.querySelector("[data-cancel-delete]"),
   confirmDelete: document.querySelector("[data-confirm-delete]"),
+  saveButton: document.querySelector("[data-save]"),
+  saveStatus: document.querySelector("[data-save-status]"),
   error: document.querySelector("[data-error]"),
 };
 
 let previousHistoryLength = 0;
+let latestState = null;
+
+function showSaveStatus(text, state) {
+  elements.saveStatus.hidden = false;
+  elements.saveStatus.textContent = text;
+  elements.saveStatus.dataset.state = state;
+}
 
 function formatTime(timestamp) {
   return new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" }).format(new Date(timestamp));
@@ -64,6 +74,7 @@ function message(role, text, timestamp, thinking = "") {
 }
 
 function render(state) {
+  latestState = state;
   elements.welcome.hidden = state.history.length > 0;
   elements.transcript.replaceChildren(elements.welcome);
   for (const interaction of state.history) {
@@ -75,6 +86,7 @@ function render(state) {
 
   elements.input.disabled = state.busy || !state.initialized;
   elements.send.disabled = state.busy || !state.initialized;
+  elements.saveButton.disabled = state.busy || !state.initialized || state.history.length === 0;
   elements.activity.hidden = !state.busy;
   elements.activity.textContent = state.busy ? "Orin is generating…" : "";
   elements.error.hidden = !state.error;
@@ -126,6 +138,31 @@ elements.confirmDelete.addEventListener("click", async () => {
     elements.input.focus();
   } finally {
     elements.confirmDelete.disabled = false;
+  }
+});
+
+elements.saveButton.addEventListener("click", async () => {
+  elements.saveButton.disabled = true;
+  showSaveStatus("Saving to cloud…", "pending");
+  try {
+    const result = await saveHistory();
+    const conversationId = latestState?.conversationId ?? 0;
+    const savedTotal = result.saved_turns + result.saved_thinking + result.saved_summaries;
+    if (savedTotal === 0) {
+      showSaveStatus(`Already up to date (conversation #${conversationId})`, "success");
+    } else {
+      showSaveStatus(
+        `Saved ${result.saved_turns} new turns · ${result.saved_thinking} thinking · ` +
+          `${result.saved_summaries} summaries (conversation #${conversationId})`,
+        "success",
+      );
+    }
+  } catch (error) {
+    showSaveStatus(error.message, "error");
+    logger.warn("ui.save_failed", { error: error.message });
+  } finally {
+    elements.saveButton.disabled =
+      !latestState || latestState.busy || !latestState.initialized || latestState.history.length === 0;
   }
 });
 

@@ -15,7 +15,10 @@
           <h1>Orin Local</h1>
           <span class="endpoint-status"><span aria-hidden="true"></span>Private endpoint</span>
         </div>
-        <button class="button button--danger" type="button" data-delete>Delete all</button>
+        <div class="header-actions">
+          <button class="button button--quiet" type="button" data-save>Save to cloud</button>
+          <button class="button button--danger" type="button" data-delete>Delete all</button>
+        </div>
       </header>
 
       <main class="chat-workspace">
@@ -30,6 +33,7 @@
         <section class="composer-region" aria-label="Message composer">
           <div class="composer-utility">
             <p class="activity" role="status" aria-live="polite" hidden data-activity></p>
+            <p class="save-status" role="status" aria-live="polite" hidden data-save-status></p>
             <details class="memory-details" data-summary-details hidden>
               <summary data-summary-label>Memory summary</summary>
               <p data-summary-text></p>

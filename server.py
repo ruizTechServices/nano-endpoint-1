@@ -9,7 +9,9 @@ from pathlib import Path
 
 from proxy.app import create_server
 from proxy.brave_client import BraveSearchClient
+from proxy.embeddings_client import OpenAIEmbeddingsClient
 from proxy.logging_config import configure_server_logging
+from proxy.supabase_client import SupabaseWriter
 
 
 def parser() -> argparse.ArgumentParser:
@@ -29,6 +31,18 @@ def main() -> int:
     api_key = os.getenv("BRAVE_SEARCH_API_KEY")
     if not api_key or not api_key.strip():
         raise SystemExit("BRAVE_SEARCH_API_KEY is not available to the server process")
+
+    # Cloud save (OpenAI embeddings + Supabase) is optional. When any credential is missing the
+    # app still runs and /api/save-history responds 503, so the local-only experience is unchanged.
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    embeddings_client = None
+    supabase_writer = None
+    if openai_api_key and supabase_url and supabase_service_role_key:
+        embeddings_client = OpenAIEmbeddingsClient(openai_api_key)
+        supabase_writer = SupabaseWriter(supabase_url, supabase_service_role_key)
+
     logger = configure_server_logging()
     web_root = Path(__file__).resolve().parent / "web"
     server = create_server(
@@ -37,8 +51,18 @@ def main() -> int:
         web_root=web_root,
         brave_client=BraveSearchClient(api_key),
         logger=logger,
+        embeddings_client=embeddings_client,
+        supabase_writer=supabase_writer,
     )
-    logger.info("server.started", extra={"host": arguments.host, "port": server.server_port, "web_root": str(web_root)})
+    logger.info(
+        "server.started",
+        extra={
+            "host": arguments.host,
+            "port": server.server_port,
+            "web_root": str(web_root),
+            "cloud_save": embeddings_client is not None,
+        },
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

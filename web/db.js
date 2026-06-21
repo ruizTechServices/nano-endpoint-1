@@ -1,13 +1,19 @@
 import { logger } from "./logger.js";
 
 const DATABASE_NAME = "orin-local-chat";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STATE_STORE = "state";
+const META_STORE = "meta";
 
 export const STATE_KEYS = Object.freeze({
   history: "history",
   summary: "rollingSummary",
   counter: "interactionCount",
+  summaryLog: "summaryLog",
+});
+
+export const META_KEYS = Object.freeze({
+  conversationId: "conversationId",
 });
 
 let databasePromise;
@@ -33,8 +39,15 @@ export function openDatabase() {
   databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
     request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains(STATE_STORE)) {
-        request.result.createObjectStore(STATE_STORE);
+      const database = request.result;
+      if (!database.objectStoreNames.contains(STATE_STORE)) {
+        database.createObjectStore(STATE_STORE);
+      }
+      if (!database.objectStoreNames.contains(META_STORE)) {
+        // The meta store holds the durable conversation counter. It is intentionally separate
+        // from STATE_STORE so clear() (the "Delete all" wipe) never resets the counter.
+        const meta = database.createObjectStore(META_STORE);
+        meta.put(0, META_KEYS.conversationId);
       }
       logger.info("persistence.upgrade", { store: STATE_STORE, action: "upgrade", key: null });
     });
@@ -92,16 +105,45 @@ export async function clear() {
   logger.warn("persistence.clear", { store: STATE_STORE, action: "clear", key: null });
 }
 
+export async function getMeta(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction(META_STORE, "readonly");
+  const result = await requestResult(transaction.objectStore(META_STORE).get(key));
+  logger.debug("persistence.get", { store: META_STORE, action: "get", key });
+  return result;
+}
+
+export async function putMeta(key, value) {
+  const database = await openDatabase();
+  const transaction = database.transaction(META_STORE, "readwrite");
+  transaction.objectStore(META_STORE).put(value, key);
+  await transactionComplete(transaction);
+  logger.info("persistence.put", { store: META_STORE, action: "put", key });
+}
+
+export async function getConversationId() {
+  const value = await getMeta(META_KEYS.conversationId);
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+export async function setConversationId(value) {
+  await putMeta(META_KEYS.conversationId, value);
+}
+
 export async function loadState() {
-  const [history, rollingSummary, interactionCount] = await Promise.all([
+  const [history, rollingSummary, interactionCount, summaryLog, conversationId] = await Promise.all([
     get(STATE_KEYS.history),
     get(STATE_KEYS.summary),
     get(STATE_KEYS.counter),
+    get(STATE_KEYS.summaryLog),
+    getConversationId(),
   ]);
   return {
     history: Array.isArray(history) ? history : [],
     rollingSummary: typeof rollingSummary === "string" && rollingSummary ? rollingSummary : null,
     interactionCount: Number.isInteger(interactionCount) && interactionCount >= 0 ? interactionCount : 0,
+    summaryLog: Array.isArray(summaryLog) ? summaryLog : [],
+    conversationId,
   };
 }
 

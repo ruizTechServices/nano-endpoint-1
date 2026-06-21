@@ -9,6 +9,8 @@ let state = {
   history: [],
   rollingSummary: null,
   interactionCount: 0,
+  summaryLog: [],
+  conversationId: 0,
   busy: false,
   error: null,
   initialized: false,
@@ -36,6 +38,8 @@ export async function initialize() {
     interactions: state.history.length,
     interactionCount: state.interactionCount,
     hasSummary: Boolean(state.rollingSummary),
+    conversationId: state.conversationId,
+    summaryLog: state.summaryLog.length,
   });
   notify();
   return snapshot();
@@ -74,8 +78,21 @@ export async function onUserMessage(input) {
     const nextSummary = await consolidate(history, previousSummary, interactionCount);
     const summaryUpdated = nextSummary !== previousSummary;
     if (summaryUpdated) {
-      state = { ...state, rollingSummary: nextSummary };
-      await database.put(database.STATE_KEYS.summary, nextSummary);
+      // Append this checkpoint to the durable summary log so every consolidation is preserved
+      // for cloud save (the rollingSummary string itself is recursive and self-overwriting).
+      const summaryEntry = {
+        id: crypto.randomUUID(),
+        conversationId: state.conversationId,
+        position: interactionCount,
+        summary: nextSummary,
+        ts: new Date().toISOString(),
+      };
+      const summaryLog = [...state.summaryLog, summaryEntry];
+      state = { ...state, rollingSummary: nextSummary, summaryLog };
+      await database.putMany({
+        [database.STATE_KEYS.summary]: nextSummary,
+        [database.STATE_KEYS.summaryLog]: summaryLog,
+      });
     }
     logger.info("chat.turn_completed", {
       interactionId: interaction.id,
@@ -95,15 +112,26 @@ export async function onUserMessage(input) {
 }
 
 export async function deleteAll() {
+  // Increment the durable conversation counter BEFORE wiping. The counter lives in the `meta`
+  // store, which clear() never touches, so each delete starts a distinct conversation id.
+  const nextConversationId = (await database.getConversationId()) + 1;
+  await database.setConversationId(nextConversationId);
   await database.clear();
   state = {
     history: [],
     rollingSummary: null,
     interactionCount: 0,
+    summaryLog: [],
+    conversationId: nextConversationId,
     busy: false,
     error: null,
     initialized: true,
   };
-  logger.warn("chat.deleted", { history: 0, hasSummary: false, interactionCount: 0 });
+  logger.warn("chat.deleted", {
+    history: 0,
+    hasSummary: false,
+    interactionCount: 0,
+    conversationId: nextConversationId,
+  });
   notify();
 }
